@@ -70,6 +70,21 @@ extern "C"
 #define LED_1                                       PC_1
 #define LED_2                                       PC_0
 
+
+#define LCD_MOSI                                    PC_3
+#define LCD_MISO                                    PB_14
+#define LCD_SCLK                                    PB_13
+//#define LCD_RS                                      PC_4 
+//#define LCD_WR                                      PC_8
+//#define LCD_LCK                                     PC_6
+//#define LCD_CS                                      PC_5
+
+//#define I2C2_SDA                                    PB_11
+//#define I2C2_SCL                                    PB_10
+//#define AMG8833_INT                                 PB_12
+
+
+
 // Debug pins definition.
 #define RADIO_DBG_PIN_TX                            PB_6
 #define RADIO_DBG_PIN_RX                            PC_7

@@ -24,12 +24,20 @@
 /*! \file classA/NucleoL476/main.c */
 
 #include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+#include <math.h>
+#include <stdlib.h>
 #include "utilities.h"
 #include "board.h"
 #include "gpio.h"
 #include "LoRaMac.h"
 #include "Commissioning.h"
 #include "NvmCtxMgmt.h"
+#include "AMG8833.h"
+#include "DFR0529_LCD.h"
+#include "interpolation.h"
+
 
 #ifndef ACTIVE_REGION
 
@@ -42,7 +50,7 @@
 /*!
  * Defines the application data transmission duty cycle. 5s, value in [ms].
  */
-#define APP_TX_DUTYCYCLE                            5000
+#define APP_TX_DUTYCYCLE                            10000
 
 /*!
  * Defines a random delay for application data transmission duty cycle. 1s,
@@ -122,6 +130,73 @@ static uint8_t AppDataSizeBackup = 1;
  */
 #define LORAWAN_APP_DATA_MAX_SIZE                           242
 
+
+/*!
+ *  Variable and function defined by Jingchen
+ */
+
+extern  Gpio_t Cancel_led;
+volatile  bool Cancel_led_status=0 ;
+
+#define MAXTEMP 28           //threshold of LCD buff
+#define MINTEMP 20
+#define upperdegree  25      //threshold of INT
+#define lowerdegree  15
+#define  RM_TEMP 25    // high -> increase color, set the room temperature
+
+float pixdata[64];          // the pixel data read from AMG8833
+float pixel_buff[32*32];    // pixel buff after interpolation
+uint16_t colorbuff[32*32];
+volatile uint16_t LCD_buff[128*128];
+uint8_t pixelInts[8];
+char    drawInts[64];
+
+const uint16_t color_red=0x1F<<3 ;
+//uint16_t color_green=0x07&0x07<<13;
+const uint16_t color_blue=0x1F<<8;
+const uint16_t color_black=0x0000;
+
+volatile uint16_t therm =0;
+volatile bool intReceived = false;
+volatile float offset=0;
+volatile float ThermValue=0;
+
+const uint16_t camColors[] = {0x0F48,
+0x0F40,0x0F40,0x0F40,0x1040,0x1038,0x1038,0x1038,0x1038,0x1030,0x1030,
+0x1030,0x1028,0x1028,0x1028,0x1028,0x1020,0x1020,0x1020,0x1018,0x1018,
+0x1118,0x1118,0x1110,0x1110,0x1110,0x1108,0x1108,0x1108,0x1100,0x1100,
+0x1100,0x1100,0x1100,0x3100,0x3100,0x5100,0x7200,0x7200,0x9200,0xB200,
+0xB200,0xD200,0xF200,0xF200,0x1201,0x3201,0x5201,0x5201,0x7201,0x9201,
+0x9201,0xB201,0xD201,0xF301,0xF301,0x1302,0x3302,0x5302,0x5302,0x7302,
+0x9302,0xB302,0xD302,0xD302,0xF302,0x1303,0x3303,0x3303,0x5303,0x7303,
+0x9403,0xB403,0xD403,0xD403,0xF403,0x1404,0x3404,0x5404,0x7404,0x7404,
+0x9404,0xB404,0xD404,0xF404,0x1405,0x3405,0x3405,0x5405,0x5405,0x7405,
+0x7405,0x7305,0x7305,0x7305,0x7205,0x7205,0x7205,0x7105,0x9105,0x9105,
+0x9005,0x9005,0x8F05,0x8F05,0x8F05,0x8E05,0xAE05,0xAE05,0xAD05,0xAD05,
+0xAD05,0xAC05,0xAC05,0xAB05,0xCB05,0xCB05,0xCA05,0xCA05,0xCA05,0xC905,
+0xC905,0xC805,0xE805,0xE805,0xE705,0xE705,0xE605,0xE605,0xE605,0xE505,
+0xE505,0x0406,0x0406,0x0406,0x0306,0x0306,0x0206,0x0206,0x0106,0x2106,
+0x2106,0x2006,0x2006,0x2006,0x2006,0x200E,0x200E,0x400E,0x4016,0x4016,
+0x401E,0x401E,0x4026,0x4026,0x402E,0x602E,0x6036,0x6036,0x603E,0x603E,
+0x603E,0x6046,0x6046,0x604E,0x804E,0x8056,0x8056,0x805E,0x805E,0x8066,
+0x8066,0x806E,0xA06E,0xA076,0xA076,0xA07E,0xA07E,0xA086,0xA086,0xA08E,
+0xC08E,0xC096,0xC096,0xC09E,0xC09E,0xC0A6,0xC0AE,0xC0AE,0xE0B6,0xE0B6,
+0xE0BE,0xE0BE,0xE0C6,0xE0C6,0xE0CE,0xE0CE,0xE0D6,0x00D7,0x00DF,0xE0DE,
+0xC0DE,0xA0DE,0x80DE,0x80DE,0x60E6,0x40E6,0x20E6,0x00E6,0xE0E5,0xC0E5,
+0xA0E5,0x80E5,0x60E5,0x40E5,0x20E5,0x00E5,0xE0E4,0xC0E4,0xA0E4,0x80E4,
+0x60E4,0x40EC,0x20EC,0x00EC,0xE0EB,0xC0EB,0xA0EB,0x80EB,0x60EB,0x40EB,
+0x20EB,0x00EB,0xE0EA,0xC0EA,0xA0EA,0x80EA,0x60EA,0x40EA,0x20F2,0x00F2,
+0xE0F1,0xC0F1,0xA0F1,0x80F1,0x60F1,0x40F1,0x00F1,0xE0F0,0xC0F0,0xA0F0,
+0x80F0,0x60F0,0x40F0,0x20F0,0x00F8,};
+
+
+
+void show_buffer(float* buff);
+static void Show_image(float tmp_offset);
+static void pixdeldata_adjust(float* pixdata,int size, float offset);
+static void DrawInts(uint8_t* InfBuff);
+static void Handling_AMG8833Int(void);
+
 /*!
  * User application data
  */
@@ -147,15 +222,6 @@ static TimerEvent_t TxNextPacketTimer;
  */
 static bool AppLedStateOn = false;
 
-/*!
- * Timer to handle the state of LED1
- */
-static TimerEvent_t Led1Timer;
-
-/*!
- * Timer to handle the state of LED2
- */
-static TimerEvent_t Led2Timer;
 
 /*!
  * Indicates if a new packet can be sent
@@ -170,7 +236,7 @@ static bool NextTx = true;
 static uint8_t IsMacProcessPending = 0;
 
 /*!
- * Device states
+ * Device states 
  */
 static enum eDeviceState
 {
@@ -211,15 +277,15 @@ typedef enum
 /*!
  * Application data structure
  */
-typedef struct LoRaMacHandlerAppData_s
+struct LoRaMacHandlerAppData
 {
     LoRaMacHandlerMsgTypes_t MsgType;
     uint8_t Port;
     uint8_t BufferSize;
     uint8_t *Buffer;
-}LoRaMacHandlerAppData_t;
+};
 
-LoRaMacHandlerAppData_t AppData =
+struct LoRaMacHandlerAppData AppData =
 {
     .MsgType = LORAMAC_HANDLER_UNCONFIRMED_MSG,
     .Buffer = NULL,
@@ -227,11 +293,7 @@ LoRaMacHandlerAppData_t AppData =
     .Port = 0
 };
 
-/*!
- * LED GPIO pins objects
- */
-extern Gpio_t Led1; // Tx
-extern Gpio_t Led2; // Rx
+
 
 /*!
  * MAC status strings
@@ -351,9 +413,14 @@ static void PrepareTxFrame( uint8_t port )
     {
     case 2:
         {
-            AppDataSizeBackup = AppDataSize = 1;
-            AppDataBuffer[0] = AppLedStateOn;
+            AppDataSizeBackup = AppDataSize = 8;
+           
+           for (int i=0;i<8;i++)
+           {
+              AppDataBuffer[i] = pixelInts[i];
+           }
         }
+           
         break;
     case 224:
         if( ComplianceTest.LinkCheck == true )
@@ -435,6 +502,9 @@ static bool SendFrame( void )
     printf( "\r\n###### ===== MCPS-Request ==== ######\r\n" );
     printf( "STATUS      : %s\r\n", MacStatusStrings[status] );
 
+    printf( "\r\n###### ===== DATA to Send ==== ######\r\n" );
+    PrintHexBuffer( AppData.Buffer, AppData.BufferSize );
+
     if( status == LORAMAC_STATUS_OK )
     {
         return false;
@@ -445,7 +515,7 @@ static bool SendFrame( void )
 /*!
  * \brief Function executed on TxNextPacket Timeout event
  */
-static void OnTxNextPacketTimerEvent( void* context )
+void OnTxNextPacketTimerEvent( void* context )
 {
     MibRequestConfirm_t mibReq;
     LoRaMacStatus_t status;
@@ -470,25 +540,6 @@ static void OnTxNextPacketTimerEvent( void* context )
     }
 }
 
-/*!
- * \brief Function executed on Led 1 Timeout event
- */
-static void OnLed1TimerEvent( void* context )
-{
-    TimerStop( &Led1Timer );
-    // Switch LED 1 OFF
-    GpioWrite( &Led1, 0 );
-}
-
-/*!
- * \brief Function executed on Led 2 Timeout event
- */
-static void OnLed2TimerEvent( void* context )
-{
-    TimerStop( &Led2Timer );
-    // Switch LED 2 OFF
-    GpioWrite( &Led2, 0 );
-}
 
 /*!
  * \brief   MCPS-Confirm event function
@@ -530,8 +581,8 @@ static void McpsConfirm( McpsConfirm_t *mcpsConfirm )
         }
 
         // Switch LED 1 ON
-        GpioWrite( &Led1, 1 );
-        TimerStart( &Led1Timer );
+       // GpioWrite( &Led1, 1 );
+       // TimerStart( &Led1Timer );
     }
     MibRequestConfirm_t mibGet;
     MibRequestConfirm_t mibReq;
@@ -666,6 +717,18 @@ static void McpsIndication( McpsIndication_t *mcpsIndication )
             if( mcpsIndication->BufferSize == 1 )
             {
                 AppLedStateOn = mcpsIndication->Buffer[0] & 0x01;
+                switch ( (int) AppLedStateOn)
+                {
+                case 0:
+                 // GpioWrite(&Cancel_led,0);         // CANCEL led turn off
+                  Cancel_led_status=0;
+                  break;
+                case 1:
+                 // GpioWrite(&Cancel_led,1);         // CANCEL led turn off
+                  Cancel_led_status=1;
+                  break;
+                  default: break;
+                }
             }
             break;
         case 224:
@@ -814,9 +877,7 @@ static void McpsIndication( McpsIndication_t *mcpsIndication )
         }
     }
 
-    // Switch LED 2 ON for each received downlink
-    GpioWrite( &Led2, 1 );
-    TimerStart( &Led2Timer );
+
 
     const char *slotStrings[] = { "1", "2", "C", "C Multicast", "B Ping-Slot", "B Multicast Ping-Slot" };
 
@@ -836,7 +897,6 @@ static void McpsIndication( McpsIndication_t *mcpsIndication )
     printf( "DATA RATE   : DR_%d\r\n", mcpsIndication->RxDatarate );
     printf( "RX RSSI     : %d\r\n", mcpsIndication->Rssi );
     printf( "RX SNR      : %d\r\n", mcpsIndication->Snr );
-
     printf( "\r\n" );
 }
 
@@ -931,7 +991,7 @@ static void MlmeIndication( MlmeIndication_t *mlmeIndication )
 
 void OnMacProcessNotify( void )
 {
-    IsMacProcessPending = 1;
+    IsMacProcessPending = 0; //1      
 }
 
 /**
@@ -945,12 +1005,12 @@ int main( void )
     LoRaMacStatus_t status;
     uint8_t devEui[] = LORAWAN_DEVICE_EUI;
     uint8_t joinEui[] = LORAWAN_JOIN_EUI;
-
+ 
     BoardInitMcu( );
-    BoardInitPeriph( );
-
-    macPrimitives.MacMcpsConfirm = McpsConfirm;
-    macPrimitives.MacMcpsIndication = McpsIndication;
+    BoardInitPeriph( );         // initial LCD , AMG8833
+      
+    macPrimitives.MacMcpsConfirm = McpsConfirm;              // uplink
+    macPrimitives.MacMcpsIndication = McpsIndication;        //downlink
     macPrimitives.MacMlmeConfirm = MlmeConfirm;
     macPrimitives.MacMlmeIndication = MlmeIndication;
     macCallbacks.GetBatteryLevel = BoardGetBatteryLevel;
@@ -972,8 +1032,21 @@ int main( void )
 
     printf( "###### ===== ClassA demo application v1.0.RC1 ==== ######\r\n\r\n" );
 
+    memset(pixdata,0, sizeof(pixdata));
+	memset(colorbuff,0, sizeof(colorbuff));
+	Set_interrupt(upperdegree,lowerdegree );
+	Enable_interrupt();
+
     while( 1 )
     {
+        fillScreen(0x0000);
+        AMG8833_Read_pixdels(pixdata);                              //output temperature
+        // printf("\n**********Real Temp is:\n");
+        // show_buffer(pixdata);
+        ThermValue=0.0625*AMG8833_Read_thermistor();
+        offset=ThermValue-RM_TEMP;                                 // Calibration  ****increase: color-> blue  decrease: color->red*******
+        Set_interrupt(upperdegree+offset, lowerdegree+offset);     //reset the threshold
+        // Show_image(offset);
         // Process Radio IRQ
         if( Radio.IrqProcess != NULL )
         {
@@ -981,6 +1054,11 @@ int main( void )
         }
         // Processes the LoRaMac events
         LoRaMacProcess( );
+
+        if(intReceived)
+        { 
+            Handling_AMG8833Int();
+        }
 
         switch( DeviceState )
         {
@@ -1074,13 +1152,6 @@ int main( void )
             case DEVICE_STATE_START:
             {
                 TimerInit( &TxNextPacketTimer, OnTxNextPacketTimerEvent );
-
-                TimerInit( &Led1Timer, OnLed1TimerEvent );
-                TimerSetValue( &Led1Timer, 25 );
-
-                TimerInit( &Led2Timer, OnLed2TimerEvent );
-                TimerSetValue( &Led2Timer, 25 );
-
                 mibReq.Type = MIB_PUBLIC_NETWORK;
                 mibReq.Param.EnablePublicNetwork = LORAWAN_PUBLIC_NETWORK;
                 LoRaMacMibSetRequestConfirm( &mibReq );
@@ -1204,6 +1275,7 @@ int main( void )
                 }
 
                 CRITICAL_SECTION_BEGIN( );
+               
                 if( IsMacProcessPending == 1 )
                 {
                     // Clear flag and prevent MCU to go into low power modes.
@@ -1224,4 +1296,123 @@ int main( void )
             }
         }
     }
+}
+
+void show_buffer(float* buff)
+{
+	float sum=0;
+	for(int line=0; line<8;line++)
+	{
+		for (int col=0;col<8;col++)
+		{
+		sum+=buff[col+line*8];
+		printf("No.(%d.%d)-%d\t",line,col, (int)(buff[(col+line*8)]*100));  //float can not work
+
+		}
+	    puts("\n");
+	}
+}
+ 
+static void Handling_AMG8833Int(void)
+{
+    CRITICAL_SECTION_BEGIN( );
+	intReceived = false;
+    CRITICAL_SECTION_END();
+	getInterrupt(pixelInts);
+	//printf("*** interrupt received! ****\r\n");
+	DrawInts(pixelInts);
+	Clear_interrupt();  
+}
+
+static void DrawInts(uint8_t* InfBuff)
+{
+	volatile int j=0;
+	volatile int shift=0;
+	volatile int temp_intpos[8][8]={0};
+
+	for(int i=0;i<64;i++)
+	{
+		j=i/8;
+		shift=(7-i%8);
+		if( ((InfBuff[j]) & (0x01<<shift))== (0x01<<shift))  drawInts[(8*((63-i)/8))+((63-i)%8)]='*';
+		else  drawInts[(8*((63-i)/8))+((63-i)%8)]='0';
+	}
+
+	for(int i=0;i<8;i++)       //line
+	{
+	   for(int j=0;j<8;j++)   //col
+	   {
+		//  printf("%c   ",drawInts[j+i*8]);
+		  if (drawInts[j+i*8]=='*')  temp_intpos[i][j]=1;
+	   }
+	  // puts("\n");
+	}
+
+	int ii=0,jj=0;
+	for(int i =0;i<128;i++)          //line
+	{
+		ii=i/16;
+		for(int j =0;j<128;j++)       //column
+		{
+			jj=j/16;
+			if(temp_intpos[ii][jj]==1)  LCD_buff[(j+128*i)]=0x00F8;
+			else LCD_buff[(j+128*i)]=0x0000;
+		}
+	}
+
+	char  cur_Temp[15]="Rm temp:";
+	char  cur_value[5]={0};
+	itoa((int)(ThermValue*100),cur_value, 10);
+	strcat(cur_Temp, cur_value);
+	showText(cur_Temp);
+	setCursorAddr(0, 0, 128, 128);
+	writeCmd(0x2c);
+	writeDatBytes((uint8_t*)LCD_buff, sizeof(LCD_buff));
+
+}
+
+
+static void pixdeldata_adjust(float* pixdata,int size, float offset)
+{
+	float temp=0;
+	for(int i=0;i<size;i++)
+	{
+		temp=pixdata[i]-offset;
+		pixdata[i]=temp;
+	}
+}
+
+
+static void Show_image(float tmp_offset)
+{
+    interpolate_image(pixdata,8,8,pixel_buff,32,32);  //buf
+    for (int i=0;i<32*32;i++)
+   	{
+   		int colorTemp;
+   		if(pixel_buff[i] >= (MAXTEMP) ) colorTemp = MAXTEMP;
+   		else if(pixel_buff[i] <= (MINTEMP)) colorTemp = MINTEMP;
+   		else colorTemp = pixel_buff[i];
+   		uint8_t colorIndex =ceil((colorTemp-(MINTEMP))*256/(MAXTEMP-MINTEMP));
+   		colorbuff[i]=camColors[colorIndex];
+   	}
+	volatile int col=0;
+    volatile int line=0;
+    for(int li=0;li<=127;li++)                  //line
+    {
+   	     line=li/4;
+		 for(int cl=0;cl<=127;cl++)            //column
+		 {
+			col=cl/4;
+			LCD_buff[(cl+128*li)]=colorbuff[(col+line*32)];
+		 }
+    }
+
+	char  cur_Temp[15]="Rm temp:";
+	char  cur_value[5]={0};
+	itoa((int)(ThermValue*100),cur_value, 10);
+	strcat(cur_Temp, cur_value);
+	showText(cur_Temp);
+	setCursorAddr(0, 0, 128, 128);
+	writeCmd(0x2c);
+	writeDatBytes((uint8_t*)LCD_buff, sizeof(LCD_buff));
 }

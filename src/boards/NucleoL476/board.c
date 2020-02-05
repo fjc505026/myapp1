@@ -31,6 +31,9 @@
 #include "board-config.h"
 #include "lpm-board.h"
 #include "rtc-board.h"
+#include "DFR0529_LCD.h"
+#include "AMG8833.h"
+
 
 #if defined( SX1261MBXBAS ) || defined( SX1262MBXCAS ) || defined( SX1262MBXDAS )
     #include "sx126x-board.h"
@@ -51,13 +54,18 @@
 /*!
  * LED GPIO pins objects
  */
-Gpio_t Led1;
-Gpio_t Led2;
+Gpio_t LCD_RS;
+Gpio_t LCD_WR;
+Gpio_t LCD_LCK;
+Gpio_t LCD_CS;
+Gpio_t AMG8833_INT; 
 
+extern volatile bool intReceived;
 /*
  * MCU objects
  */
 Uart_t Uart2;
+Spi_t LCD_SPI;
 
 /*!
  * Initializes the unused GPIO to a know status
@@ -113,6 +121,23 @@ uint8_t Uart2RxBuffer[UART2_FIFO_RX_SIZE];
  */
 static volatile bool SystemWakeupTimeCalibrated = false;
 
+
+
+static  void GPIO_EXIT_Callback( void* context  );
+
+static  void GPIO_EXIT_Callback( void* context  )
+{
+
+    if(HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_12) == GPIO_PIN_RESET)         //Detect the AMG8833_INT is low, ????
+    {
+        CRITICAL_SECTION_BEGIN();
+        intReceived = true;
+        __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_12);
+        CRITICAL_SECTION_END();
+    }
+
+}
+
 /*!
  * Callback indicating the end of the system wake-up time calibration
  */
@@ -135,7 +160,9 @@ void BoardCriticalSectionEnd( uint32_t *mask )
 
 void BoardInitPeriph( void )
 {
-
+   LCD_Init();
+   fillScreen(0x00F8);
+   AMG8833_Init();   
 }
 
 void BoardInitMcu( void )
@@ -146,10 +173,13 @@ void BoardInitMcu( void )
 
         InitFlashMemoryOperations( );
 
-        // LEDs
-        GpioInit( &Led1, LED_1, PIN_OUTPUT, PIN_PUSH_PULL, PIN_NO_PULL, 0 );
-        GpioInit( &Led2, LED_2, PIN_OUTPUT, PIN_PUSH_PULL, PIN_NO_PULL, 0 );
-
+        // GPIOs initialise
+        GpioInit( &LCD_RS, PC_4, PIN_OUTPUT, PIN_PUSH_PULL, PIN_PULL_UP, 1 );
+        GpioInit( &LCD_WR, PC_8, PIN_OUTPUT, PIN_PUSH_PULL, PIN_PULL_UP, 1 );
+        GpioInit( &LCD_LCK, PC_6, PIN_OUTPUT, PIN_PUSH_PULL, PIN_PULL_UP, 1);
+        GpioInit( &LCD_CS, PC_5, PIN_OUTPUT, PIN_PUSH_PULL, PIN_PULL_UP, 1);
+        GpioInit( &AMG8833_INT, PB_12, PIN_INPUT, PIN_PUSH_PULL, PIN_PULL_UP, 1 );
+        GpioSetInterrupt( &AMG8833_INT, IRQ_FALLING_EDGE, IRQ_HIGH_PRIORITY, GPIO_EXIT_Callback);
         SystemClockConfig( );
 
         UsbIsConnected = true;
@@ -159,10 +189,10 @@ void BoardInitMcu( void )
         // Configure your terminal for 8 Bits data (7 data bit + 1 parity bit), no parity and no flow ctrl
         UartInit( &Uart2, UART_2, UART_TX, UART_RX );
         UartConfig( &Uart2, RX_TX, 921600, UART_8_BIT, UART_1_STOP_BIT, NO_PARITY, NO_FLOW_CTRL );
-
+        SpiInit( &LCD_SPI, SPI_2, LCD_MOSI, LCD_MISO, LCD_SCLK, NC );   //SPI2 initial
         RtcInit( );
 
-        BoardUnusedIoInit( );
+       // BoardUnusedIoInit( );
         if( GetBoardPowerSource( ) == BATTERY_POWER )
         {
             // Disables OFF mode - Enables lowest power mode (STOP)
@@ -174,6 +204,7 @@ void BoardInitMcu( void )
         SystemClockReConfig( );
     }
 
+    
 #if defined( SX1261MBXBAS ) || defined( SX1262MBXCAS ) || defined( SX1262MBXDAS )
     SpiInit( &SX126x.Spi, SPI_1, RADIO_MOSI, RADIO_MISO, RADIO_SCLK, NC );
     SX126xIoInit( );
@@ -276,7 +307,9 @@ void SystemClockConfig( void )
 
     __HAL_PWR_VOLTAGESCALING_CONFIG( PWR_REGULATOR_VOLTAGE_SCALE1 );
 
-    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_MSI | RCC_OSCILLATORTYPE_LSE;
+    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_MSI | RCC_OSCILLATORTYPE_LSE;
+    RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+    RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
     RCC_OscInitStruct.MSIState            = RCC_MSI_ON;
     RCC_OscInitStruct.LSEState            = RCC_LSE_ON;
     RCC_OscInitStruct.MSIClockRange       = RCC_MSIRANGE_6;
@@ -293,6 +326,8 @@ void SystemClockConfig( void )
         assert_param( FAIL );
     }
 
+    __HAL_RCC_HSIAUTOMATIC_START_ENABLE();
+
     RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | 
                                   RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
     RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
@@ -306,6 +341,13 @@ void SystemClockConfig( void )
 
     PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_RTC;
     PeriphClkInit.RTCClockSelection = RCC_RTCCLKSOURCE_LSE;
+    if( HAL_RCCEx_PeriphCLKConfig( &PeriphClkInit ) != HAL_OK )
+    {
+        assert_param( FAIL );
+    }
+
+    PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_I2C2;
+    PeriphClkInit.I2c2ClockSelection = RCC_I2C2CLKSOURCE_HSI;
     if( HAL_RCCEx_PeriphCLKConfig( &PeriphClkInit ) != HAL_OK )
     {
         assert_param( FAIL );
@@ -530,7 +572,6 @@ void BoardLowPowerHandler( void )
      * If an interrupt has occurred after __disable_irq( ), it is kept pending 
      * and cortex will not enter low power anyway
      */
-
     LpmEnterLowPower( );
 
     __enable_irq( );

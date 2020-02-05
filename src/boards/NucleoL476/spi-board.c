@@ -26,7 +26,15 @@
 #include "gpio.h"
 #include "spi-board.h"
 
+
+extern Gpio_t LCD_RS;
+extern Gpio_t LCD_WR;
+extern Gpio_t LCD_LCK;
+extern Gpio_t LCD_CS;
+extern Spi_t  LCD_SPI;
+
 static SPI_HandleTypeDef SpiHandle[2];
+//static void SPI_transmit_8bit(SPI_HandleTypeDef* hspi, uint8_t dat);
 
 void SpiInit( Spi_t *obj, SpiId_t spiId, PinNames mosi, PinNames miso, PinNames sclk, PinNames nss )
 {
@@ -55,9 +63,9 @@ void SpiInit( Spi_t *obj, SpiId_t spiId, PinNames mosi, PinNames miso, PinNames 
 
         SpiHandle[spiId].Instance = ( SPI_TypeDef* )SPI2_BASE;
 
-        GpioInit( &obj->Mosi, mosi, PIN_ALTERNATE_FCT, PIN_PUSH_PULL, PIN_PULL_DOWN, GPIO_AF5_SPI2 );
-        GpioInit( &obj->Miso, miso, PIN_ALTERNATE_FCT, PIN_PUSH_PULL, PIN_PULL_DOWN, GPIO_AF5_SPI2 );
-        GpioInit( &obj->Sclk, sclk, PIN_ALTERNATE_FCT, PIN_PUSH_PULL, PIN_PULL_DOWN, GPIO_AF5_SPI2 );
+        GpioInit( &obj->Mosi, mosi, PIN_ALTERNATE_FCT, PIN_PUSH_PULL, PIN_NO_PULL, GPIO_AF5_SPI2 );
+        GpioInit( &obj->Miso, miso, PIN_ALTERNATE_FCT, PIN_PUSH_PULL, PIN_NO_PULL, GPIO_AF5_SPI2 );
+        GpioInit( &obj->Sclk, sclk, PIN_ALTERNATE_FCT, PIN_PUSH_PULL, PIN_NO_PULL, GPIO_AF5_SPI2 );
         GpioInit( &obj->Nss, nss, PIN_ALTERNATE_FCT, PIN_PUSH_PULL, PIN_PULL_UP, GPIO_AF5_SPI2 );
     }
 
@@ -81,10 +89,10 @@ void SpiDeInit( Spi_t *obj )
 {
     HAL_SPI_DeInit( &SpiHandle[obj->SpiId] );
 
-    GpioInit( &obj->Mosi, obj->Mosi.pin, PIN_OUTPUT, PIN_PUSH_PULL, PIN_NO_PULL, 0 );
-    GpioInit( &obj->Miso, obj->Miso.pin, PIN_OUTPUT, PIN_PUSH_PULL, PIN_PULL_DOWN, 0 );
-    GpioInit( &obj->Sclk, obj->Sclk.pin, PIN_OUTPUT, PIN_PUSH_PULL, PIN_NO_PULL, 0 );
-    GpioInit( &obj->Nss, obj->Nss.pin, PIN_OUTPUT, PIN_PUSH_PULL, PIN_PULL_UP, 1 );
+    GpioInit( &obj->Mosi, obj->Mosi.pin, PIN_OUTPUT, PIN_PUSH_PULL, PIN_PULL_DOWN, 0 );  //PIN_NO_PULL
+    GpioInit( &obj->Miso, obj->Miso.pin, PIN_OUTPUT, PIN_PUSH_PULL, PIN_PULL_DOWN, 0 ); //PIN_PULL_DOWN
+    GpioInit( &obj->Sclk, obj->Sclk.pin, PIN_OUTPUT, PIN_PUSH_PULL, PIN_PULL_DOWN, 0 ); //PIN_NO_PULL
+    GpioInit( &obj->Nss, obj->Nss.pin, PIN_OUTPUT, PIN_PUSH_PULL, PIN_PULL_UP, 1 ); //PIN_PULL_UP
 }
 
 void SpiFormat( Spi_t *obj, int8_t bits, int8_t cpol, int8_t cpha, int8_t slave )
@@ -159,3 +167,78 @@ uint16_t SpiInOut( Spi_t *obj, uint16_t outData )
     return( rxData );
 }
 
+static void SPI_transmit_8bit(SPI_HandleTypeDef* hspi, uint8_t dat )
+{
+
+	hspi->Instance->CR1|=SPI_CR1_SPE;
+	while((hspi->Instance->SR & SPI_SR_RXNE) == SPI_SR_RXNE)
+	{
+      (void)hspi->Instance->DR;
+	}
+	while((hspi->Instance->SR & SPI_SR_TXE) != SPI_SR_TXE)
+	{
+	}
+	*((__IO uint8_t *)&(hspi->Instance->DR))= dat;
+	while((hspi->Instance->SR & SPI_SR_RXNE) != SPI_SR_RXNE)
+	{
+	}
+	(void)hspi->Instance->DR;
+	while((hspi->Instance->SR & SPI_SR_BSY) == SPI_SR_BSY)
+	{
+	}
+}
+
+
+/*transfer data */
+void writeDat(uint8_t dat)
+{
+
+	writeDatBytes(&dat,sizeof(dat));
+}
+
+
+void writeDatBytes(uint8_t* pDat, uint16_t count)
+{
+	HAL_GPIO_WritePin(LCD_RS.port, LCD_RS.pinIndex, GPIO_PIN_SET);         //RS->1
+	HAL_GPIO_WritePin(LCD_CS.port, LCD_CS.pinIndex, GPIO_PIN_RESET);       //CS->0
+	SpiHandle[SPI_2].Instance->CR1|=SPI_CR1_SPE;
+	while((SpiHandle[SPI_2].Instance->SR & SPI_SR_RXNE) == SPI_SR_RXNE)
+	{
+		(void)SpiHandle[SPI_2].Instance->DR;
+	}
+	while(count --)
+	{
+		while((SpiHandle[SPI_2].Instance->SR & SPI_SR_TXE) != SPI_SR_TXE)
+		{
+		}
+		*((__IO uint8_t *)&SpiHandle[SPI_2].Instance->DR)=*pDat;
+		while((SpiHandle[SPI_2].Instance->SR & SPI_SR_RXNE) != SPI_SR_RXNE)
+		{
+		}
+		(void)SpiHandle[SPI_2].Instance->DR;
+		while((SpiHandle[SPI_2].Instance->SR & SPI_SR_BSY) == SPI_SR_BSY)
+		{
+		}
+		//HAL_SPI_Transmit(&SpiHandle[SPI_2], pDat, sizeof(*pDat), 10);
+		HAL_GPIO_WritePin(LCD_LCK.port, LCD_LCK.pinIndex, GPIO_PIN_SET);        //LCK->1
+		HAL_GPIO_WritePin(LCD_LCK.port, LCD_LCK.pinIndex, GPIO_PIN_RESET);      //LCK->0
+		HAL_GPIO_WritePin(LCD_WR.port,  LCD_WR.pinIndex,  GPIO_PIN_RESET);      //WR->0
+		HAL_GPIO_WritePin(LCD_WR.port,  LCD_WR.pinIndex,  GPIO_PIN_SET);        //WR->1
+		pDat ++;
+	}
+	HAL_GPIO_WritePin(LCD_CS.port, LCD_CS.pin, GPIO_PIN_SET);    //CS->1
+}
+
+void writeCmd(uint8_t cmd)
+
+{
+	HAL_GPIO_WritePin(LCD_RS.port,    LCD_RS.pinIndex,    GPIO_PIN_RESET);   //RS->0
+	HAL_GPIO_WritePin(LCD_CS.port,    LCD_CS.pinIndex , GPIO_PIN_RESET);   //CS->0
+	SPI_transmit_8bit(&SpiHandle[SPI_2], cmd );
+	//HAL_SPI_Transmit(&SpiHandle[SPI_2],&cmd,sizeof(cmd),10);  //1byte
+	HAL_GPIO_WritePin(LCD_LCK.port, LCD_LCK.pinIndex, GPIO_PIN_SET);        //LCK->1
+	HAL_GPIO_WritePin(LCD_LCK.port, LCD_LCK.pinIndex, GPIO_PIN_RESET);      //LCK->0
+	HAL_GPIO_WritePin(LCD_WR.port, LCD_WR.pinIndex, GPIO_PIN_RESET);        //WR->0
+	HAL_GPIO_WritePin(LCD_WR.port, LCD_WR.pinIndex, GPIO_PIN_SET);          //WR->1
+	HAL_GPIO_WritePin(LCD_CS.port, LCD_CS.pinIndex, GPIO_PIN_SET);    //CS->1
+}

@@ -28,7 +28,7 @@
 #include "lpm-board.h"
 
 static uint32_t StopModeDisable = 0;
-static uint32_t OffModeDisable = 0;
+static uint32_t OffModeDisable = 1;
 
 void LpmSetOffMode( LpmId_t id, LpmSetMode_t mode )
 {
@@ -142,6 +142,7 @@ LpmGetMode_t LpmGetMode(void)
 
 __weak void LpmEnterSleepMode( void )
 {
+    
 }
 
 __weak void LpmExitSleepMode( void )

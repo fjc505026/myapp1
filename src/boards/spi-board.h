@@ -32,6 +32,9 @@ extern "C"
 
 // An Spi.c file has to be implmented under system directory.
 
+void writeDatBytes(uint8_t* pDat, uint16_t count);
+void writeCmd(uint8_t cmd);
+void writeDat(uint8_t dat);
 #ifdef __cplusplus
 }
 #endif

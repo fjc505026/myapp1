@@ -116,7 +116,7 @@ static uint8_t AppPort = LORAWAN_APP_PORT;
  */
 static uint8_t AppDataSize = 1;
 static uint8_t AppDataSizeBackup = 1;
-
+volatile  int Cancel_led_status=0;
 /*!
  * User application data buffer size
  */
@@ -232,7 +232,9 @@ LoRaMacHandlerAppData_t AppData =
  */
 extern Gpio_t Led1; // Tx
 extern Gpio_t Led2; // Rx
-
+extern Gpio_t Cancel_button;
+extern Gpio_t Call_button;
+extern Gpio_t Cancel_led;
 /*!
  * MAC status strings
  */
@@ -352,7 +354,7 @@ static void PrepareTxFrame( uint8_t port )
     case 2:
         {
             AppDataSizeBackup = AppDataSize = 1;
-            AppDataBuffer[0] = AppLedStateOn;
+            AppDataBuffer[0] = Cancel_led_status; //AppLedStateOn;
         }
         break;
     case 224:
@@ -666,6 +668,18 @@ static void McpsIndication( McpsIndication_t *mcpsIndication )
             if( mcpsIndication->BufferSize == 1 )
             {
                 AppLedStateOn = mcpsIndication->Buffer[0] & 0x01;
+                switch ( (int) AppLedStateOn)
+                {
+                case 0:
+                  GpioWrite(&Cancel_led,0);         // CANCEL led turn off
+                  Cancel_led_status=0;
+                  break;
+                case 1:
+                  GpioWrite(&Cancel_led,1);         // CANCEL led turn off
+                  Cancel_led_status=1;
+                  break;
+                  default: break;
+                }    
             }
             break;
         case 224:
@@ -937,6 +951,8 @@ void OnMacProcessNotify( void )
 /**
  * Main application entry point.
  */
+
+
 int main( void )
 {
     LoRaMacPrimitives_t macPrimitives;
@@ -971,9 +987,23 @@ int main( void )
     DeviceState = DEVICE_STATE_RESTORE;
 
     printf( "###### ===== ClassC demo application v1.0.RC1 ==== ######\r\n\r\n" );
+   
 
     while( 1 )
     {
+	    if(GpioRead(&Call_button) == 0)           //CALL button pushed
+	    {
+         GpioWrite(&Cancel_led,1);               // CANCEL led light up
+         Cancel_led_status=1;
+         printf("Cancel_led_status is %d\r\n", Cancel_led_status);
+	    }
+	    if(GpioRead(&Cancel_button) == 0)        //CANCEL button pushed
+	    {
+		 GpioWrite(&Cancel_led,0);         // CANCEL led turn off
+         Cancel_led_status=0;
+         printf("Cancel_led_status is %d\r\n", Cancel_led_status);
+	    }
+       
         // Process Radio IRQ
         if( Radio.IrqProcess != NULL )
         {

@@ -36,25 +36,26 @@ static I2cAddrSize I2cInternalAddrSize = I2C_ADDR_SIZE_8;
 
 void I2cMcuInit( I2c_t *obj, I2cId_t i2cId, PinNames scl, PinNames sda )
 {
-    __HAL_RCC_I2C1_CLK_DISABLE( );
-    __HAL_RCC_I2C1_CLK_ENABLE( );
-    __HAL_RCC_I2C1_FORCE_RESET( );
-    __HAL_RCC_I2C1_RELEASE_RESET( );
+    __HAL_RCC_I2C2_CLK_DISABLE( );
+    __HAL_RCC_I2C2_CLK_ENABLE( );
+    __HAL_RCC_I2C2_FORCE_RESET( );
+    __HAL_RCC_I2C2_RELEASE_RESET( );
 
     obj->I2cId = i2cId;
 
-    I2cHandle.Instance  = ( I2C_TypeDef * )I2C1_BASE;
+    I2cHandle.Instance  = ( I2C_TypeDef * )I2C2_BASE;
 
-    GpioInit( &obj->Scl, scl, PIN_ALTERNATE_FCT, PIN_OPEN_DRAIN, PIN_NO_PULL, GPIO_AF4_I2C1 );
-    GpioInit( &obj->Sda, sda, PIN_ALTERNATE_FCT, PIN_OPEN_DRAIN, PIN_NO_PULL, GPIO_AF4_I2C1 );
+    GpioInit( &obj->Scl, scl, PIN_ALTERNATE_FCT, PIN_OPEN_DRAIN, PIN_NO_PULL, GPIO_AF4_I2C2 );
+    GpioInit( &obj->Sda, sda, PIN_ALTERNATE_FCT, PIN_OPEN_DRAIN, PIN_NO_PULL, GPIO_AF4_I2C2 );
 }
 
 void I2cMcuFormat( I2c_t *obj, I2cMode mode, I2cDutyCycle dutyCycle, bool I2cAckEnable, I2cAckAddrMode AckAddrMode, uint32_t I2cFrequency )
 {
-    __HAL_RCC_I2C1_CLK_ENABLE( );
+    __HAL_RCC_I2C2_CLK_ENABLE( );
 
-    I2cHandle.Init.ClockSpeed = I2cFrequency;
-
+    //I2cHandle.Init.ClockSpeed = I2cFrequency;
+    I2cHandle.Init.Timing=0x0010061A;
+    /*
     if( dutyCycle == I2C_DUTY_CYCLE_2 )
     {
         I2cHandle.Init.DutyCycle = I2C_DUTYCYCLE_2;
@@ -62,7 +63,7 @@ void I2cMcuFormat( I2c_t *obj, I2cMode mode, I2cDutyCycle dutyCycle, bool I2cAck
     else
     {
         I2cHandle.Init.DutyCycle = I2C_DUTYCYCLE_16_9;
-    }
+    }*/
 
     I2cHandle.Init.OwnAddress1 = 0;
     I2cHandle.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;

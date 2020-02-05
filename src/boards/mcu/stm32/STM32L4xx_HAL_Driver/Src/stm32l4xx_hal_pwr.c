@@ -479,11 +479,14 @@ void HAL_PWR_EnterSLEEPMode(uint32_t Regulator, uint8_t SLEEPEntry)
   }
   else
   {
+     // SET_BIT(FLASH->ACR, FLASH_ACR_RUN_PD);   //prepare for LP sleep mode
+      // SystemCoreClock=MSIRangeTable[4];
+     //  SystemCoreClockUpdate();
     /* If in run mode, first move to low-power run mode.
        The system clock frequency must be below 2 MHz at this point. */
     if (HAL_IS_BIT_SET(PWR->SR2, PWR_SR2_REGLPF) == RESET)
-    {
-      HAL_PWREx_EnableLowPowerRunMode();
+    { 
+       HAL_PWREx_EnableLowPowerRunMode();
     }
   }
 
@@ -493,8 +496,12 @@ void HAL_PWR_EnterSLEEPMode(uint32_t Regulator, uint8_t SLEEPEntry)
   /* Select SLEEP mode entry -------------------------------------------------*/
   if(SLEEPEntry == PWR_SLEEPENTRY_WFI)
   {
+       SystemCoreClock=MSIRangeTable[4];
+       SystemCoreClockUpdate();
     /* Request Wait For Interrupt */
+    HAL_SuspendTick();
     __WFI();
+    HAL_ResumeTick();
   }
   else
   {
@@ -544,7 +551,9 @@ void HAL_PWR_EnterSTOPMode(uint32_t Regulator, uint8_t STOPEntry)
 
   if(Regulator == PWR_LOWPOWERREGULATOR_ON)
   {
-    HAL_PWREx_EnterSTOP1Mode(STOPEntry);
+     
+     HAL_PWREx_EnterSTOP2Mode(STOPEntry);//HAL_PWREx_EnterSTOP1Mode
+     
   }
   else
   {

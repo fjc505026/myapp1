@@ -30,6 +30,7 @@ extern "C"
 
 #include <stdint.h>
 #include "utilities.h"
+#include "spi-board.h"
 /*!
  * Possible power sources
  */
@@ -117,6 +118,8 @@ uint8_t GetBoardPowerSource( void );
  * \retval value  Version
  */
 Version_t BoardGetVersion( void );
+
+
 
 #ifdef __cplusplus
 }
